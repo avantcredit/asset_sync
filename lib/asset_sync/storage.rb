@@ -36,23 +36,23 @@ module AssetSync
       files = []
       Array(self.config.ignored_files).each do |ignore|
         case ignore
-          when Regexp
-            files += self.local_files.select do |file|
-              file =~ ignore
-            end
-          when String
-            files += self.local_files.select do |file|
-              file.split('/').last == ignore
-            end
-          else
-            log "Error: please define ignored_files as string or regular expression. #{ignore} (#{ignore.class}) ignored."
+        when Regexp
+          files += self.local_files.select do |file|
+            file =~ ignore
+          end
+        when String
+          files += self.local_files.select do |file|
+            file.split('/').last == ignore
+          end
+        else
+          log "Error: please define ignored_files as string or regular expression. #{ignore} (#{ignore.class}) ignored."
         end
       end
       files.uniq
     end
 
     def local_files
-      @local_files ||= get_local_files.uniq
+      @local_files ||= get_local_files
     end
 
     def always_upload_files
@@ -68,31 +68,43 @@ module AssetSync
     end
 
     def get_local_files
-      if self.config.manifest
-        if ActionView::Base.respond_to?(:assets_manifest)
-          log "Using: Rails 4.0 manifest access"
-          manifest = Sprockets::Manifest.new(ActionView::Base.assets_manifest.environment, ActionView::Base.assets_manifest.dir)
-          return manifest.assets.values.map { |f| File.join(self.config.assets_prefix, f) }
-        elsif File.exists?(self.config.manifest_path)
-          log "Using: Manifest #{self.config.manifest_path}"
-          yml = YAML.load(IO.read(self.config.manifest_path))
-   
-          return yml.map do |original, compiled|
-            # Upload font originals and compiled
-            if original =~ /^.+(eot|svg|ttf|woff)$/
-              [original, compiled]
-            else
-              compiled
-            end
-          end.flatten.map { |f| File.join(self.config.assets_prefix, f) }.uniq!
-        else
-          log "Warning: Manifest could not be found"
+      if self.config.manifest && File.exists?(self.config.manifest_path)
+        return local_file_list_from_manifest
+      else
+        log "Warning: Manifest could not be found"
+        log "Using: Directory Search of #{path}/#{self.config.assets_prefix}"
+        Dir.chdir(path) do
+          Dir["#{self.config.assets_prefix}/**/**"]
         end
       end
-      log "Using: Directory Search of #{path}/#{self.config.assets_prefix}"
-      Dir.chdir(path) do
-        Dir["#{self.config.assets_prefix}/**/**"]
+    end
+
+    def local_files_from_rails_4
+      log "Using: Rails 4.0 manifest access"
+      manifest = Sprockets::Manifest.new(ActionView::Base.assets_manifest.environment, ActionView::Base.assets_manifest.dir)
+      return manifest.assets.values.map { |f| File.join(self.config.assets_prefix, f) }
+    end
+
+    def local_files_from_rails_3
+      yml = YAML.load(IO.read(self.config.manifest_path))
+
+       file_set = yml.map do |original, compiled|
+        # Upload font originals and compiled
+        if original =~ /^.+(eot|svg|ttf|woff)$/
+          [original, compiled]
+        else
+          compiled
+        end
       end
+
+      file_set.flatten.map { |f| File.join(self.config.assets_prefix, f) }.uniq
+    end
+
+    def local_file_list_from_manifest
+      log "Using: Manifest #{self.config.manifest_path}"
+      return local_files_from_rails_4 if ActionView::Base.respond_to?(:assets_manifest)
+
+      local_files_from_rails_3
     end
 
     def get_remote_files
@@ -173,10 +185,10 @@ module AssetSync
         if gzipped_size < original_size
           percentage = ((gzipped_size.to_f/original_size.to_f)*100).round(2)
           file.merge!({
-                        :key => f,
-                        :body => File.open(gzipped),
-                        :content_encoding => 'gzip'
-                      })
+            :key => f,
+            :body => File.open(gzipped),
+            :content_encoding => 'gzip'
+          })
           log "Uploading: #{gzipped} in place of #{f} saving #{percentage}%"
         else
           percentage = ((original_size.to_f/gzipped_size.to_f)*100).round(2)
