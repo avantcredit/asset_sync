@@ -196,7 +196,7 @@ module AssetSync
           log "Uploading #{file_name} instead of #{gz_file_name} because compression increases the file size by #{-1 * percentage}%"
         end
       else
-        if !config.gzip? && File.exists?(gz_file_path)
+        if !config.gzip? && is_file_gz
           # set content encoding for gzipped files this allows cloudfront to properly handle requests with Accept-Encoding
           # http://docs.amazonwebservices.com/AmazonCloudFront/latest/DeveloperGuide/ServingCompressedFiles.html
           file_payload.merge!({
@@ -205,7 +205,7 @@ module AssetSync
             :content_encoding => 'gzip'
           })
         end
-        log "Uploading #{gz_file_name}"
+        log "Uploading #{file_name}"
       end
 
       if config.aws? && config.aws_rrs?
@@ -217,7 +217,7 @@ module AssetSync
       file_payload.merge!(:body => File.open(file_path)) unless file_payload.has_key?(:body)
 
       log file_payload.inspect
-      log "Uploading #{file_payload[:key]}..."
+
       bucket.files.create( file_payload ) unless ignore
     end
 
