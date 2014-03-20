@@ -138,18 +138,21 @@ module AssetSync
 
     def upload_file(f)
       # TODO output files in debug logs as asset filename only.
-      one_year = 31557600
-      ext = File.extname(f)[1..-1]
-      mime = MultiMime.lookup(ext)
-      file = {
-        :key => f,
-        :body => File.open("#{path}/#{f}"),
-        :public => true,
+      one_year     = 31557600
+      ext          = File.extname(f)[1..-1]
+      mime         = MultiMime.lookup(ext)
+
+      file_path    = "#{path}/#{f}"
+      gz_file_path = "#{file_path}.gz"
+
+      file_payload = {
+        :key          => f,
+        :public       => true,
         :content_type => mime
       }
 
       if /-[0-9a-fA-F]{32}$/.match(File.basename(f,File.extname(f)))
-        file.merge!({
+        file_payload.merge!({
           :cache_control => "public, max-age=#{one_year}",
           :expires => CGI.rfc1123_date(Time.now + one_year)
         })
@@ -158,40 +161,34 @@ module AssetSync
       # overwrite headers if applicable, you probably shouldn't specific key/body, but cache-control headers etc.
 
       if files_with_custom_headers.has_key? f
-        file.merge! files_with_custom_headers[f]
+        file_payload.merge! files_with_custom_headers[f]
         log "Overwriting #{f} with custom headers #{files_with_custom_headers[f].to_s}"
       elsif key = self.config.custom_headers.keys.detect {|k| f.match(Regexp.new(k))}
         headers = {}
         self.config.custom_headers[key].each do |key, value|
           headers[key.to_sym] = value
         end
-        file.merge! headers
+        file_payload.merge! headers
         log "Overwriting matching file #{f} with custom headers #{headers.to_s}"
       end
 
-
-      gzipped = "#{path}/#{f}.gz"
-      ignore = false
-
-      if config.gzip? && File.extname(f) == ".gz"
+      if ignore = (config.gzip? && File.extname(f) == ".gz")
         # Don't bother uploading gzipped assets if we are in gzip_compression mode
         # as we will overwrite file.css with file.css.gz if it exists.
-        log "Ignoring: #{f}"
-        ignore = true
-      elsif config.gzip? && File.exists?(gzipped)
-        original_size = File.size("#{path}/#{f}")
-        gzipped_size = File.size(gzipped)
+        log "Ignoring #{f}"
+      elsif config.gzip? && File.exists?(gz_file_path)
+        original_size = File.size(file_path)
+        gzipped_size  = File.size(gz_file_path)
 
         percentage = percentage_change(original_size, gzipped_size)
         if gzipped_size < original_size
-          file.merge!({
-            :key => f,
-            :body => File.open(gzipped),
+          file_payload.merge!({
+            :body => File.open(gz_file_path),
             :content_encoding => 'gzip'
           })
-          log "Uploading: #{gzipped} in place of #{f} saving #{percentage}%"
+          log "Uploading #{gz_file_path} in place of #{f}, saving #{percentage}%"
         else
-          log "Uploading: #{f} instead of #{gzipped} (compression increases this file by #{-1 * percentage}%)"
+          log "Uploading #{f} instead of #{gz_file_path} because compression increases the file size by #{-1 * percentage}%"
         end
       else
         if !config.gzip? && File.extname(f) == ".gz"
@@ -200,21 +197,23 @@ module AssetSync
           uncompressed_filename = f[0..-4]
           ext = File.extname(uncompressed_filename)[1..-1]
           mime = MultiMime.lookup(ext)
-          file.merge!({
+          file_payload.merge!({
             :content_type     => mime,
             :content_encoding => 'gzip'
           })
         end
-        log "Uploading: #{f}"
+        log "Uploading #{f}"
       end
 
       if config.aws? && config.aws_rrs?
-        file.merge!({
+        file_payload.merge!({
           :storage_class => 'REDUCED_REDUNDANCY'
         })
       end
 
-      file = bucket.files.create( file ) unless ignore
+      file_payload.merge!(:body => File.open(file_path)) unless file_payload.has_key?(:body)
+
+      bucket.files.create( file_payload ) unless ignore
     end
 
     def upload_files
@@ -240,7 +239,7 @@ module AssetSync
 
     def sync
       # fixes: https://github.com/rumblelabs/asset_sync/issues/19
-      log "AssetSync: Syncing."
+      log "AssetSync: Syncing..."
       upload_files
       delete_extra_remote_files unless keep_existing_remote_files?
       log "AssetSync: Done."
