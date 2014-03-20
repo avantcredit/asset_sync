@@ -236,7 +236,7 @@ module AssetSync
         upload_file f
       end
 
-      log "AssetSync: Uploading finished" unless local_files_to_upload.empty?
+      log "AssetSync: Finished Uploading" unless local_files_to_upload.empty?
 
       if self.config.cdn_distribution_id && files_to_invalidate.any?
         log "Invalidating Files"
@@ -251,7 +251,7 @@ module AssetSync
       log "AssetSync: Syncing..."
       upload_files
       delete_extra_remote_files unless keep_existing_remote_files?
-      log "AssetSync: Done."
+      log "AssetSync: Finished Syncing"
     end
 
     private
