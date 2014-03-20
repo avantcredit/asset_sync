@@ -139,16 +139,21 @@ module AssetSync
     def upload_file(f)
       # TODO output files in debug logs as asset filename only.
       one_year     = 31557600
-      ext          = File.extname(f)[1..-1]
-      mime         = MultiMime.lookup(ext)
+      # Check if the incoming file is the uncompressed or compressed version
+      is_file_gz   = File.extname(f) == ".gz"
 
-      file_path    = "#{path}/#{f}"
-      gz_file_path = "#{file_path}.gz"
+      file_name    = is_file_gz ? f.sub(/\.gz?/,'') : f
+      gz_file_name = is_file_gz ? f : "#{f}.gz"
+
+      file_path              = "#{path}/#{file_name}"
+      gz_file_path           = "#{path}/#{gz_file_name}"
+      ext                    = File.extname(file_name)[1..-1]
+      mime                   = MultiMime.lookup(ext)
 
       file_payload = {
-        :key          => f,
-        :public       => true,
-        :content_type => mime
+        :key          => file_name,
+        :content_type => mime,
+        :public       => true
       }
 
       if /-[0-9a-fA-F]{32}$/.match(File.basename(f,File.extname(f)))
@@ -159,7 +164,7 @@ module AssetSync
       end
 
       # overwrite headers if applicable, you probably shouldn't specific key/body, but cache-control headers etc.
-
+      # TODO we may want this group to go against file_name
       if files_with_custom_headers.has_key? f
         file_payload.merge! files_with_custom_headers[f]
         log "Overwriting #{f} with custom headers #{files_with_custom_headers[f].to_s}"
@@ -172,7 +177,7 @@ module AssetSync
         log "Overwriting matching file #{f} with custom headers #{headers.to_s}"
       end
 
-      if ignore = (config.gzip? && File.extname(f) == ".gz")
+      if ignore = (config.gzip? && is_file_gz)
         # Don't bother uploading gzipped assets if we are in gzip_compression mode
         # as we will overwrite file.css with file.css.gz if it exists.
         log "Ignoring #{f}"
@@ -183,26 +188,24 @@ module AssetSync
         percentage = percentage_change(original_size, gzipped_size)
         if gzipped_size < original_size
           file_payload.merge!({
-            :body => File.open(gz_file_path),
+            :body             => File.open(gz_file_path),
             :content_encoding => 'gzip'
           })
-          log "Uploading #{gz_file_path} in place of #{f}, saving #{percentage}%"
+          log "Uploading #{gz_file_name} in place of #{file_name}, saving #{percentage}%"
         else
-          log "Uploading #{f} instead of #{gz_file_path} because compression increases the file size by #{-1 * percentage}%"
+          log "Uploading #{file_name} instead of #{gz_file_name} because compression increases the file size by #{-1 * percentage}%"
         end
       else
-        if !config.gzip? && File.extname(f) == ".gz"
+        if !config.gzip? && File.exists?(gz_file_path)
           # set content encoding for gzipped files this allows cloudfront to properly handle requests with Accept-Encoding
           # http://docs.amazonwebservices.com/AmazonCloudFront/latest/DeveloperGuide/ServingCompressedFiles.html
-          uncompressed_filename = f[0..-4]
-          ext = File.extname(uncompressed_filename)[1..-1]
-          mime = MultiMime.lookup(ext)
           file_payload.merge!({
-            :content_type     => mime,
+            :key              => gz_file_name,
+            :body             => File.open(gz_file_path),
             :content_encoding => 'gzip'
           })
         end
-        log "Uploading #{f}"
+        log "Uploading #{gz_file_name}"
       end
 
       if config.aws? && config.aws_rrs?
