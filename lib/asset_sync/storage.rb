@@ -216,6 +216,8 @@ module AssetSync
 
       file_payload.merge!(:body => File.open(file_path)) unless file_payload.has_key?(:body)
 
+      log file_payload.inspect
+      log "Uploading #{file_payload[:key]}..."
       bucket.files.create( file_payload ) unless ignore
     end
 
@@ -226,11 +228,15 @@ module AssetSync
       local_files_to_upload = local_files - ignored_files - remote_files + always_upload_files
       local_files_to_upload = (local_files_to_upload + get_non_fingerprinted(local_files_to_upload)).uniq
 
+      log "AssetSync: Uploading files..." unless local_files_to_upload.empty?
+
       # Upload new files
       local_files_to_upload.each do |f|
         next unless File.file? "#{path}/#{f}" # Only files.
         upload_file f
       end
+
+      log "AssetSync: Uploading finished" unless local_files_to_upload.empty?
 
       if self.config.cdn_distribution_id && files_to_invalidate.any?
         log "Invalidating Files"
