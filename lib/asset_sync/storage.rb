@@ -182,8 +182,8 @@ module AssetSync
         original_size = File.size("#{path}/#{f}")
         gzipped_size = File.size(gzipped)
 
+        percentage = percentage_change(original_size, gzipped_size)
         if gzipped_size < original_size
-          percentage = ((gzipped_size.to_f/original_size.to_f)*100).round(2)
           file.merge!({
             :key => f,
             :body => File.open(gzipped),
@@ -191,8 +191,7 @@ module AssetSync
           })
           log "Uploading: #{gzipped} in place of #{f} saving #{percentage}%"
         else
-          percentage = ((original_size.to_f/gzipped_size.to_f)*100).round(2)
-          log "Uploading: #{f} instead of #{gzipped} (compression increases this file by #{percentage}%)"
+          log "Uploading: #{f} instead of #{gzipped} (compression increases this file by #{-1 * percentage}%)"
         end
       else
         if !config.gzip? && File.extname(f) == ".gz"
@@ -258,6 +257,10 @@ module AssetSync
         match_data = file.match(REGEXP_FINGERPRINTED_FILES)
         match_data && "#{match_data[1]}/#{match_data[2]}.#{match_data[3]}"
       end.compact
+    end
+
+    def percentage_change(original_size, new_size)
+      "%.2f" % (((original_size.to_f - new_size.to_f) / original_size.to_f) * 100)
     end
 
   end
